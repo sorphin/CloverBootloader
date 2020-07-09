@@ -225,10 +225,10 @@ Mostly UEFI boot uses hardware NVRAM but in some rare cases this driver is neede
 "About Clover" = "O aplikácii Clover";
 "Preferences…" = "Nastavenia…";
 "Services" = "Služby";
-"Hide Clover" = "Skryť VoiceOver utilitu";
+"Hide Clover" = "Skryť Clover utilitu";
 "Hide Others" = "Skryť ostatné";
 "Show All" = "Zobraziť všetky";
-"Quit Clover" = "Ukončiť VoiceOver utilitu";
+"Quit Clover" = "Ukončiť Clover utilitu";
 // File
 "New" = "New";
 "Open…" = "Otvoriť…";
@@ -321,6 +321,7 @@ Mostly UEFI boot uses hardware NVRAM but in some rare cases this driver is neede
 "Keep editing" = "Keep editing";
 "Duplicate key in the Dictionary!" = "Duplicate key in the Dictionary!";
 "'%@' is already present in the Dictionary. Do you want to undo the editing or replace the existing key?" = "'%@' is already present in the Dictionary. Do you want to undo the editing or replace the existing key?";
+"Replace existing key" = "Replace existing key";
 "Invalid value detected!" = "Invalid value detected!";
 "Your edit is not valid. Do you want to restore last valid value or keep editing?" = "Your edit is not valid. Do you want to restore last valid value or keep editing?";
 

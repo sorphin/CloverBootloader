@@ -222,13 +222,13 @@ Mostly UEFI boot uses hardware NVRAM but in some rare cases this driver is neede
 
 // Plist Editor Menu
 // Clover.app Menu
-"About Clover" = "Про Утиліту VoiceOver";
+"About Clover" = "Про Утиліту Clover";
 "Preferences…" = "Параметри…";
 "Services" = "Сервіси";
-"Hide Clover" = "Сховати Утиліту VoiceOver";
+"Hide Clover" = "Сховати Утиліту Clover";
 "Hide Others" = "Сховати решту";
 "Show All" = "Показати всі";
-"Quit Clover" = "Завершити Утиліту VoiceOver";
+"Quit Clover" = "Завершити Утиліту Clover";
 // File
 "New" = "New";
 "Open…" = "Відкрити…";
@@ -321,6 +321,7 @@ Mostly UEFI boot uses hardware NVRAM but in some rare cases this driver is neede
 "Keep editing" = "Keep editing";
 "Duplicate key in the Dictionary!" = "Duplicate key in the Dictionary!";
 "'%@' is already present in the Dictionary. Do you want to undo the editing or replace the existing key?" = "'%@' is already present in the Dictionary. Do you want to undo the editing or replace the existing key?";
+"Replace existing key" = "Replace existing key";
 "Invalid value detected!" = "Invalid value detected!";
 "Your edit is not valid. Do you want to restore last valid value or keep editing?" = "Your edit is not valid. Do you want to restore last valid value or keep editing?";
 

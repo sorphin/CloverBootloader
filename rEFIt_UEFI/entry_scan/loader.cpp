@@ -206,7 +206,8 @@ CONST XStringW OSXInstallerPaths[] = {
   L"\\Mac OS X Install Data\\boot.efi"_XSW, // 10.7
   L"\\OS X Install Data\\boot.efi"_XSW, // 10.8 - 10.11
   L"\\macOS Install Data\\boot.efi"_XSW, // 10.12 - 10.12.3
-  L"\\macOS Install Data\\Locked Files\\Boot Files\\boot.efi"_XSW // 10.12.4+
+  L"\\macOS Install Data\\Locked Files\\Boot Files\\boot.efi"_XSW, // 10.12.4-10.15
+  L"\\macOS Install Data\\Locked Files\\boot.efi"_XSW // 10.16+
 };
 
 STATIC CONST UINTN OSXInstallerPathsCount = (sizeof(OSXInstallerPaths) / sizeof(OSXInstallerPaths[0]));
@@ -621,10 +622,12 @@ STATIC LOADER_ENTRY *CreateLoaderEntry(IN CONST XStringW& LoaderPath,
     case OSTYPE_OSX_INSTALLER:
       OSIconName = GetOSIconName(Entry->OSVersion);// Sothor - Get OSIcon name using OSVersion
       // apianti - force custom logo even when verbose
+/* this is not needed, as this flag is also being unset when booting if -v is present (LoadOptions may change until then)
       if ( Entry->LoadOptions.containsIC("-v")  ) {
         // OSX is not booting verbose, so we can set console to graphics mode
         Entry->Flags = OSFLAG_UNSET(Entry->Flags, OSFLAG_USEGRAPHICS);
       }
+*/
       if (OSType == OSTYPE_OSX && IsOsxHibernated(Entry)) {
         Entry->Flags = OSFLAG_SET(Entry->Flags, OSFLAG_HIBERNATED);
         DBG("  =>set entry as hibernated\n");
@@ -1360,6 +1363,7 @@ VOID ScanLoader(VOID)
     AddLoaderEntry(L"\\OS X Install Data\\boot.efi"_XSW, NullXStringArray, L"OS X Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.8 - 10.11
     AddLoaderEntry(L"\\macOS Install Data\\boot.efi"_XSW, NullXStringArray, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12 - 10.12.3
     AddLoaderEntry(L"\\macOS Install Data\\Locked Files\\Boot Files\\boot.efi"_XSW, NullXStringArray, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.12.4+
+    AddLoaderEntry(L"\\macOS Install Data\\Locked Files\\boot.efi"_XSW, NullXStringArray, L"macOS Install"_XSW, Volume, NULL, OSTYPE_OSX_INSTALLER, 0); // 10.16+
     AddPRSEntry(Volume); // 10.12+
 
     // Netinstall

@@ -18,14 +18,16 @@
 //#include "sse3_5_patcher.h"
 
 #ifndef DEBUG_ALL
-#define KERNEL_DEBUG 0
+#define KERNEL_DEBUG 1
 #else
 #define KERNEL_DEBUG DEBUG_ALL
 #endif
 
 
-#if KERNEL_DEBUG
+#if KERNEL_DEBUG == 2
 #define DBG(...)    printf(__VA_ARGS__);
+#elif KERNEL_DEBUG == 1
+#define DBG(...)    DebugLog(KERNEL_DEBUG, __VA_ARGS__)
 #else
 #define DBG(...)
 #endif
@@ -71,19 +73,27 @@ VOID LOADER_ENTRY::SetKernelRelocBase()
 // the purpose of the procedure is to find a table of symbols in the kernel
 EFI_STATUS LOADER_ENTRY::getVTable()
 {
+	DBG("kernel at 0x%llx\n", (UINTN)KernelData);
   INT32 LinkAdr = FindBin(KernelData, 0x3000, (const UINT8 *)kLinkEditSegment, (UINT32)strlen(kLinkEditSegment));
   if (LinkAdr == -1) {
+    DBG("no LinkEdit\n");
     return EFI_NOT_FOUND;
   }
 //  const UINT8 vtable[] = {0x04, 00,00,00, 0x0F, 0x08, 00, 00};
+//  const UINT8 vtableSur[] = {0x25, 00,00,00, 0x0F, 0x06, 00, 00};
+  //25000000 0F060000 940BFF00 80FFFFFF
+  //00FFFFFF FF0FFFFF 00000000 FFFFFFFF
 
-//  INT32 Tabble = FindBin(kernel, 0x2000000, vtable, 8);
+ // INT32 Tabble  = FindBin(KernelData, 0x5000000, vtableSur, 8);
   INT32 NTabble = FindBin(KernelData, 0x2000000, (const UINT8 *)ctor_used, (UINT32)strlen(ctor_used));
   if (NTabble < 0) {
     return EFI_NOT_FOUND;
   }
-  NTabble -=4;
-//  DBG_RT("LinkAdr=%x Tabble=%x\n",LinkAdr, NTabble);
+  while (KernelData[NTabble] || KernelData[NTabble-1]) --NTabble;
+  NTabble &= ~0x03; //align, may be 0x07?
+//  NTabble -=4;
+  DBG_RT("LinkAdr=%x Tabble=%x\n",LinkAdr, NTabble);
+//	DBG("LinkAdr=%x NTabble=%x Tabble=%x\n",LinkAdr, NTabble, Tabble);
   SEGMENT *LinkSeg = (SEGMENT*)&KernelData[LinkAdr];
   AddrVtable = LinkSeg->AddrVtable;
   SizeVtable = LinkSeg->SizeVtable;
@@ -93,7 +103,10 @@ EFI_STATUS LOADER_ENTRY::getVTable()
 //  DBG_RT("AddrVtable=%x Size=%x AddrNames=%x shift=%x\n", AddrVtable, SizeVtable, NamesTable, shift);
   NamesTable = NTabble;
   AddrVtable += shift;
+//  AddrVtable = Tabble;
+  DBG("AddrVtable=%x Size=%x AddrNames=%x shift=%x\n", AddrVtable, SizeVtable, NamesTable, shift);
   SegVAddr = FindBin(KernelData, 0x600, (const UINT8 *)kTextSegment, (UINT32)strlen(kTextSegment));
+  DBG("SegVAddr=0x%x\n", SegVAddr);
   return EFI_SUCCESS;
 }
 
@@ -123,26 +136,46 @@ UINTN LOADER_ENTRY::searchProcInDriver(UINT8 * driver, UINT32 driverLen, const c
     }
   }
   if (!found) {
-    DBG_RT("%s not found\n", procedure);
+//    DBG_RT("%s not found\n", procedure);
     return 0;
   }
-  
-  INT32 lSegVAddr;
+//  DBG_RT("found section 0x%x at pos=%d\n", vArray[i].Seg, i);
+  INTN lSegVAddr;
   switch (vArray[i].Seg) {
   case ID_SEG_DATA:
     lSegVAddr = FindBin(driver, 0x1600, (const UINT8 *)kDataSegment, (UINT32)strlen(kDataSegment));
     break;
   case ID_SEG_DATA_CONST:
-    lSegVAddr = FindBin(driver, 0x1600, (const UINT8 *)kDataConstSegment, (UINT32)strlen(kDataConstSegment));
+  case ID_SEC_CONST:
+    lSegVAddr = FindSection(driver, 0x1600, (const UINT8 *)kDataSegment, (const UINT8 *)kConstSection);
+    break;
+  case ID_SEG_TEXT_CONST:
+    lSegVAddr = FindSection(driver, 0x1600, (const UINT8 *)kTextSegment, (const UINT8 *)kConstSection);
+    break;
+  case ID_SEG_DATA_COMMON:
+    lSegVAddr = FindSection(driver, 0x1600, (const UINT8 *)kDataSegment, (const UINT8 *)kCommonSection);
+    break;
+  case ID_SEG_DATA_DATA2:
+  case ID_SEG_DATA_DATA:
+    lSegVAddr = FindSection(driver, 0x1600, (const UINT8 *)kDataSegment, (const UINT8 *)kDataSection);
     break;
   case ID_SEG_KLD:
   case ID_SEG_KLD2:
     lSegVAddr = FindBin(driver, 0x2000, (const UINT8 *)kKldSegment, (UINT32)strlen(kKldSegment));
     break;
+//  case ID_SEC_BSS:
+//    lSegVAddr = FindSection(driver, 0x1600, (const UINT8 *)kDataSegment, (const UINT8 *)kBssSection);
+//    break;
+  case ID_SEC_BSS:  //it works this way
   case ID_SEG_TEXT:
-  default:
-    lSegVAddr = FindBin(driver, 0x600, (const UINT8 *)kTextSegment, (UINT32)strlen(kTextSegment));
+    lSegVAddr = FindSection(driver, 0x600, (const UINT8 *)kTextSegment, (const UINT8 *)kPrelinkTextSection);
     break;
+
+//    lSegVAddr = FindBin(driver, 0x600, (const UINT8 *)kTextSegment, (UINT32)strlen(kTextSegment));
+//    break;
+  default:
+    return vArray[i].ProcAddr;
+
   }
   if (lSegVAddr == 0) {
     lSegVAddr = 0x38;
@@ -155,6 +188,7 @@ UINTN LOADER_ENTRY::searchProcInDriver(UINT8 * driver, UINT32 driverLen, const c
   return procAddr;
 }
 
+//static int N = 0;
 //search a procedure by Name and return its offset in the kernel
 UINTN LOADER_ENTRY::searchProc(const char *procedure)
 {
@@ -170,10 +204,16 @@ UINTN LOADER_ENTRY::searchProc(const char *procedure)
   bool found = false;
   for (i=0; i<SizeVtable; ++i) {
     size_t Offset = vArray[i].NameOffset;
+    if (Offset == 0) break;
+//    if (N < 10) {
+//      DBG("Offset %lx Seg=%x\n", Offset, vArray[i].Seg);
+//      DBG("Name to compare %s\n", &Names[Offset]);
+//      N++;
+//    }
 //    DBG_RT("Offset %lx Seg=%x\n", Offset, vArray[i].Seg);
 //    DBG_RT("Name to compare %s\n", &Names[Offset]);
 //    Stall(3000000);
-    if (AsciiStrStr(&Names[Offset], procedure) != NULL) {  //if (CompareMem(&Names[Offset], procedure, nameLen) == 0) {
+    if (AsciiStrStr(&Names[Offset], procedure) != NULL) {
       found = true;
       break;
     }
@@ -1106,7 +1146,7 @@ VOID LOADER_ENTRY::applyKernPatch(const UINT8 *find, UINTN size, const UINT8 *re
 //
 static inline BOOLEAN IsXCPMOSVersionCompat(UINT64 os_version)
 {
-  return (os_version >= AsciiOSVersionToUint64("10.8.5")) && (os_version < AsciiOSVersionToUint64("10.16")); 
+  return (os_version >= AsciiOSVersionToUint64("10.8.5")) && (os_version < AsciiOSVersionToUint64("10.17")); 
 }
 
 //
@@ -1890,9 +1930,14 @@ VOID LOADER_ENTRY::Get_PreLink()
     switch (loadCommand->cmd) {
       case LC_SEGMENT_64:
         segCmd64 = (struct segment_command_64 *)loadCommand;
-        //DBG("segCmd64->segname = %s\n",segCmd64->segname);
-        //DBG("segCmd64->vmaddr = 0x%08X\n",segCmd64->vmaddr)
-        //DBG("segCmd64->vmsize = 0x%08X\n",segCmd64->vmsize);
+      //segn = (UINT32)(UINTN)segCmd64->segname;
+      if ((segCmd64->segname[2] != 'R') || (segCmd64->segname[3] != 'E')) {
+        DBG("found segment at 0x%x\n", binaryIndex);
+        DBG("segCmd64->segname = %s\n",segCmd64->segname);
+        DBG("segCmd64->vmaddr = 0x%08llX\n",segCmd64->vmaddr);
+        DBG("segCmd64->vmsize = 0x%08llX\n",segCmd64->vmsize);
+   //     Stall(5000000);
+      }
         if (AsciiStrCmp(segCmd64->segname, kPrelinkTextSegment) == 0) {
           DBG("Found PRELINK_TEXT, 64bit\n");
           if (segCmd64->vmsize > 0) {
@@ -1902,7 +1947,7 @@ VOID LOADER_ENTRY::Get_PreLink()
             PrelinkTextSize = (UINT32)segCmd64->vmsize;
             PrelinkTextLoadCmdAddr = (UINT32)(UINTN)segCmd64;
           }
-          DBG("at %p: vmaddr = 0x%llx, vmsize = 0x%llx\n", segCmd64, segCmd64->vmaddr, segCmd64->vmsize);
+          DBG("at 0x%llx: vmaddr = 0x%llx, vmsize = 0x%llx\n", (UINTN)segCmd64, segCmd64->vmaddr, segCmd64->vmsize);
           DBG("PrelinkTextLoadCmdAddr = 0x%X, PrelinkTextAddr = 0x%X, PrelinkTextSize = 0x%X\n",
               PrelinkTextLoadCmdAddr, PrelinkTextAddr, PrelinkTextSize);
           //DBG("cmd = 0x%08X\n",segCmd64->cmd);
@@ -1945,12 +1990,18 @@ VOID LOADER_ENTRY::Get_PreLink()
                 PrelinkInfoAddr = (UINT32)(sect->addr ? sect->addr + KernelRelocBase : 0);
                 PrelinkInfoSize = (UINT32)sect->size;
               }
-              DBG("__info found at %p: addr = 0x%llx, size = 0x%llx\n", sect, sect->addr, sect->size);
+              DBG("__info found at 0x%llx: addr = 0x%llx, size = 0x%llx\n", (UINTN)sect, sect->addr, sect->size);
               DBG("PrelinkInfoLoadCmdAddr = 0x%X, PrelinkInfoAddr = 0x%X, PrelinkInfoSize = 0x%X\n",
                   PrelinkInfoLoadCmdAddr, PrelinkInfoAddr, PrelinkInfoSize);
             }
           }
         }
+//      if (AsciiStrCmp(segCmd64->segname, kLinkEditSegment) == 0) {
+//        SEGMENT *LinkSeg = (SEGMENT *)segCmd64->segname;
+//        DBG("segCmd64->AddrVtable = 0x%08X\n",LinkSeg->AddrVtable); //0x48 f291d0
+//        DBG("segCmd64->SizeVtable = 0x%08X\n", LinkSeg->SizeVtable); //0x4C 6031
+//        DBG("segCmd64->AddrNames = 0x%08X\n", LinkSeg->AddrNames);  //0x50 f894e0
+//      }
         break;
 
       case LC_SEGMENT:
@@ -1966,7 +2017,7 @@ VOID LOADER_ENTRY::Get_PreLink()
             PrelinkTextSize = (UINT32)segCmd->vmsize;
             PrelinkTextLoadCmdAddr = (UINT32)(UINTN)segCmd;
           }
-          DBG("at %p: vmaddr = 0x%x, vmsize = 0x%x\n", segCmd, segCmd->vmaddr, segCmd->vmsize);
+          DBG("at 0x%llx: vmaddr = 0x%x, vmsize = 0x%x\n", (UINTN)segCmd, segCmd->vmaddr, segCmd->vmsize);
           DBG("PrelinkTextLoadCmdAddr = 0x%X, PrelinkTextAddr = 0x%X, PrelinkTextSize = 0x%X\n",
               PrelinkTextLoadCmdAddr, PrelinkTextAddr, PrelinkTextSize);
           //gBS->Stall(30*1000000);
@@ -1999,7 +2050,7 @@ VOID LOADER_ENTRY::Get_PreLink()
                 PrelinkInfoAddr = (UINT32)(sect->addr ? sect->addr + KernelRelocBase : 0);
                 PrelinkInfoSize = (UINT32)sect->size;
               }
-              DBG("__info found at %p: addr = 0x%x, size = 0x%x\n", sect, sect->addr, sect->size);
+              DBG("__info found at 0x%llx: addr = 0x%x, size = 0x%x\n", (UINTN)sect, sect->addr, sect->size);
               DBG("PrelinkInfoLoadCmdAddr = 0x%X, PrelinkInfoAddr = 0x%X, PrelinkInfoSize = 0x%X\n",
                   PrelinkInfoLoadCmdAddr, PrelinkInfoAddr, PrelinkInfoSize);
               //gBS->Stall(30*1000000);
@@ -2033,7 +2084,7 @@ LOADER_ENTRY::FindBootArgs()
     // check bootargs for 10.7 and up
     bootArgs2 = (BootArgs2*)ptr;
 
-    if (bootArgs2->Version==2 && bootArgs2->Revision==0
+    if (bootArgs2->Version==2 && (bootArgs2->Revision==0 || bootArgs2->Revision==1)
         // plus additional checks - some values are not inited by boot.efi yet
         && bootArgs2->efiMode == archMode
         && bootArgs2->kaddr == 0 && bootArgs2->ksize == 0
@@ -2045,14 +2096,14 @@ LOADER_ENTRY::FindBootArgs()
       KernelSlide = bootArgs2->kslide;
 
       DBG_RT( "Found bootArgs2 at 0x%llX, DevTree at 0x%llX\n", (UINTN)ptr, (UINTN)bootArgs2->deviceTreeP);
-      //DBG("bootArgs2->kaddr = 0x%08X and bootArgs2->ksize =  0x%08X\n", bootArgs2->kaddr, bootArgs2->ksize);
+      //DBG_RT("bootArgs2->kaddr = 0x%llX and bootArgs2->ksize =  0x%llX\n", bootArgs2->kaddr, bootArgs2->ksize);
       //DBG("bootArgs2->efiMode = 0x%02X\n", bootArgs2->efiMode);
       DBG_RT( "bootArgs2->CommandLine = %s\n", bootArgs2->CommandLine);
       DBG_RT( "bootArgs2->flags = 0x%hx\n", bootArgs2->flags);
       DBG_RT( "bootArgs2->kslide = 0x%x\n", bootArgs2->kslide);
       DBG_RT( "bootArgs2->bootMemStart = 0x%llx\n", bootArgs2->bootMemStart);
       if (KernelAndKextPatches && KernelAndKextPatches->KPDebug)
-      gBS->Stall(2000000);
+        gBS->Stall(5000000);
 
       // disable other pointer
       bootArgs1 = NULL;
@@ -2060,6 +2111,7 @@ LOADER_ENTRY::FindBootArgs()
     }
 
     // check bootargs for 10.4 - 10.6.x
+    /*
     bootArgs1 = (BootArgs1*)ptr;
 
     if (bootArgs1->Version==1
@@ -2081,9 +2133,46 @@ LOADER_ENTRY::FindBootArgs()
       bootArgs2 = NULL;
       break;
     }
-
+*/
     ptr += 0x1000;
+    if ((UINTN)ptr > 0x10000000ull) {
+      DBG_RT("bootArgs not found\n");
+      bootArgs2 = 0;
+      break;
+    }
   }
+  /*
+  if (bootArgs2 == 0) {
+    ptr = (UINT8*)0x200000ull;
+    while(TRUE) {
+      
+      // check bootargs for 10.16
+      bootArgs2 = (BootArgs2*)ptr;
+      if (strstr(&bootArgs2->CommandLine[0], "big=sur")
+          && bootArgs2->efiMode == archMode) {
+        dtRoot = (CHAR8*)(UINTN)bootArgs2->deviceTreeP;
+        dtLength = &bootArgs2->deviceTreeLength;
+        KernelSlide = bootArgs2->kslide;
+        
+        DBG_RT( "Found bootArgs at 0x%llX, DevTree at 0x%llX\n", (UINTN)ptr, (UINTN)bootArgs2->deviceTreeP);
+        DBG_RT( "bootArgs2->CommandLine = %s\n", bootArgs2->CommandLine);
+        DBG_RT( "bootArgs2->Version = 0x%x\n", bootArgs2->Version);
+        DBG_RT( "bootArgs2->Revision = 0x%x\n", bootArgs2->Revision);
+        DBG_RT( "bootArgs2->flags = 0x%hx\n", bootArgs2->flags);
+        if (KernelAndKextPatches && KernelAndKextPatches->KPDebug)
+          gBS->Stall(20000000);
+        break;
+      }
+      
+      ptr += 0x1000;
+      if ((UINTN)ptr > 0x10000000ull) {
+        DBG_RT("bootArgs 2 not found\n");
+        bootArgs2 = 0;
+        break;
+      }
+    }
+  }
+   */
 }
 
 BOOLEAN
@@ -2230,13 +2319,13 @@ LOADER_ENTRY::KernelAndKextPatcherInit()
   // KernelRelocBase will normally be 0
   // but if OsxAptioFixDrv is used, then it will be > 0
   SetKernelRelocBase();
-	DBG("KernelRelocBase = %llx\n", KernelRelocBase);
+	DBG_RT("KernelRelocBase = %llx\n", KernelRelocBase);
 
   // Find bootArgs - we need then for proper detection
   // of kernel Mach-O header
   FindBootArgs();
   if (bootArgs1 == NULL && bootArgs2 == NULL) {
-    DBG("BootArgs not found - skipping patches!\n");
+    DBG_RT("BootArgs not found - skipping patches!\n");
     return;
   }
 
@@ -2246,19 +2335,21 @@ LOADER_ENTRY::KernelAndKextPatcherInit()
   // for ML: bootArgs2->kslide + 0x00200000
   // for AptioFix booting - it's always at KernelRelocBase + 0x00200000
 
-  UINT64 os_version = AsciiOSVersionToUint64(OSVersion);
-  if (os_version < AsciiOSVersionToUint64("10.6")) {
-    KernelData = (UINT8*)(UINTN)(KernelSlide + KernelRelocBase + 0x00111000);
-  } else {
+//  UINT64 os_version = AsciiOSVersionToUint64(OSVersion);
+  DBG_RT("os_version=%s\n", OSVersion);
+//  if (os_version < AsciiOSVersionToUint64("10.6")) {
+//    KernelData = (UINT8*)(UINTN)(KernelSlide + KernelRelocBase + 0x00111000);
+//  } else {
     KernelData = (UINT8*)(UINTN)(KernelSlide + KernelRelocBase + 0x00200000);
-  }
+//  }
 
   // check that it is Mach-O header and detect architecture
   if(MACH_GET_MAGIC(KernelData) == MH_MAGIC || MACH_GET_MAGIC(KernelData) == MH_CIGAM) {
-    DBG("Found 32 bit kernel at 0x%llx\n", (UINTN)KernelData);
+    DBG_RT("Found 32 bit kernel at 0x%llx\n", (UINTN)KernelData);
     is64BitKernel = FALSE;
   } else if (MACH_GET_MAGIC(KernelData) == MH_MAGIC_64 || MACH_GET_MAGIC(KernelData) == MH_CIGAM_64) {
     DBG_RT( "Found 64 bit kernel at 0x%llx\n", (UINTN)KernelData);
+    DBG_RT("text section is: %s\n", (const char*)&KernelData[0x28]);
     is64BitKernel = TRUE;
   } else {
     // not valid Mach-O header - exiting
@@ -2266,9 +2357,21 @@ LOADER_ENTRY::KernelAndKextPatcherInit()
     KernelData = NULL;
     return;
   }
-
+ 
   // find __PRELINK_TEXT and __PRELINK_INFO
   Get_PreLink();
+
+  for (UINTN i=0x00200000; i<0x30000000; i+=4) {
+    UINT32 *KD = (UINT32 *)i;
+    if ((KD[0] == MH_MAGIC_64) && (KD[0x0a] == 0x45545F5F)){
+      DBG_RT( "Found MAGIC at %llx, text=%s\n", i, (const char*)&KD[0x0a]);
+      DBG( "Found MAGIC at %llx, text=%s\n", i, (const char*)&KD[0x0a]);
+      KernelData = (UINT8*)KD;
+      DBG( "Found new kernel at 0x%llx\n", (UINTN)KernelData);
+      break;
+    }
+  }
+
   if (EFI_ERROR(getVTable())) {
     DBG_RT("error getting vtable: \n");
   }
@@ -2293,6 +2396,7 @@ LOADER_ENTRY::KernelAndKextsPatcherStart()
   KextPatchesNeeded = (
     KernelAndKextPatches->KPAppleIntelCPUPM ||
     KernelAndKextPatches->KPAppleRTC ||
+    KernelAndKextPatches->EightApple ||
     KernelAndKextPatches->KPDELLSMBIOS ||
     (KernelAndKextPatches->KPATIConnectorsPatch != NULL) ||
     ((KernelAndKextPatches->NrKexts > 0) && (KernelAndKextPatches->KextPatches != NULL))
@@ -2305,7 +2409,7 @@ LOADER_ENTRY::KernelAndKextsPatcherStart()
     KernelAndKextPatcherInit();
     if (KernelData == NULL) goto NoKernelData;
     if (EFI_ERROR(getVTable())) {
-      DBG_RT("error getting vtable: \n");
+//      DBG_RT("error getting vtable: \n");
       goto NoKernelData;
     }
     patchedOk = KernelUserPatch();
@@ -2469,6 +2573,7 @@ LOADER_ENTRY::KernelAndKextsPatcherStart()
          );
 
   if (KextPatchesNeeded && gSettings.KextPatchesAllowed) {
+    DBG_RT( "\nKext patching INIT\n");
     KernelAndKextPatcherInit();
     if (KernelData == NULL) goto NoKernelData;
     DBG_RT( "\nKext patching STARTED\n");
@@ -2478,7 +2583,7 @@ LOADER_ENTRY::KernelAndKextsPatcherStart()
     DBG_RT( "Disabled\n");
   }
 
-  Stall(10000000);
+  Stall(1000000);
 
   //
   // Kext add
@@ -2522,7 +2627,7 @@ LOADER_ENTRY::KernelAndKextsPatcherStart()
     } else return;
 
     Status = InjectKexts(deviceTreeP, deviceTreeLength);
-
+    DBG_RT("Inject kexts done at 0x%llx\n", (UINTN)deviceTreeP);
     if (!EFI_ERROR(Status)) KernelBooterExtensionsPatch();
   }
 

@@ -914,7 +914,6 @@ VOID SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case iMac181:
     case iMac182:
     case iMac183:
-    case iMacPro11: // ' '
     case MacPro71:
       gPlatformFeature        = 0x00;
       break;
@@ -936,8 +935,6 @@ VOID SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case MacBookPro114:
     case MacBookPro115:
     case MacBookPro121:
-    case MacBookPro151: // '2'
-    case MacBookPro152: // '2'
       gPlatformFeature        = 0x02;
       break;
     case MacMini71:
@@ -959,13 +956,17 @@ VOID SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
     case MacBookPro143:
       gPlatformFeature        = 0x1A;
       break;
+    case iMacPro11:
     case MacMini81:
-      gPlatformFeature        = 0x20;
-      break;
     case iMac191:
     case iMac192:
-      gPlatformFeature        = 0x22;
+      gPlatformFeature        = 0x20;
       break;
+    case MacBookPro151:
+    case MacBookPro152:
+    case MacBookPro153:
+    case MacBookPro154:
+    case MacBookPro161:
     case MacBookPro162:
     case MacBookPro163:
       gPlatformFeature        = 0x32;
@@ -976,19 +977,20 @@ VOID SetDMISettingsForModel(MACHINE_TYPES Model, BOOLEAN Redefine)
       gPlatformFeature        = 0x3A;
       break;
           
-    // Verified list from Users
-    case MacBookPro153:
-    case MacBookPro154:
-    case MacBookPro161:
-      gPlatformFeature        = 0x02;
-      break;
+   // It is nonsense, ASCII code сharacter "2" = 0x32 != 0x02. Don't use ioreg, so that not to be confused. Use dmidecode dump.
+   // Verified list from Users
+   // case MacBookPro153:
+   // case MacBookPro154:
+   // case MacBookPro161:
+   //   gPlatformFeature        = 0x02;
+   //   break;
 
     default:
       gPlatformFeature        = 0xFFFF; // disabled
       break;
   }
 
-  if (Model > MacPro31) {
+  if ((Model > MacPro31) && (Model < MacPro71)) {
     gSettings.BoardType = BaseBoardTypeProcessorMemoryModule; //0xB;
   } else {
     gSettings.BoardType = BaseBoardTypeMotherBoard; //0xA;
@@ -1378,7 +1380,7 @@ VOID GetDefaultSettings()
   gSettings.HDAInjection         = FALSE;
   //gSettings.HDALayoutId          = 0;
   gSettings.USBInjection         = TRUE; // enabled by default to have the same behavior as before
-  StrCpyS (gSettings.DsdtName, 28, L"DSDT.aml");
+  StrCpyS(gSettings.DsdtName, 28, L"DSDT.aml");
   gSettings.BacklightLevel       = 0xFFFF; //0x0503; -- the value from MBA52
   gSettings.BacklightLevelConfig = FALSE;
   gSettings.TrustSMBIOS          = TRUE;

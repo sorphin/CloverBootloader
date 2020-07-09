@@ -720,6 +720,7 @@ CopyKernelAndKextPatches (IN OUT  KERNEL_AND_KEXT_PATCHES *Dst,
   Dst->KPKernelPm        = Src->KPKernelPm;
   Dst->KPAppleIntelCPUPM = Src->KPAppleIntelCPUPM;
   Dst->KPAppleRTC        = Src->KPAppleRTC;
+  Dst->EightApple        = Src->EightApple;
   Dst->KPDELLSMBIOS      = Src->KPDELLSMBIOS;
   Dst->FakeCPUID         = Src->FakeCPUID;
   Dst->KPPanicNoKextDump = Src->KPPanicNoKextDump;
@@ -960,6 +961,11 @@ FillinKextPatches (IN OUT KERNEL_AND_KEXT_PATCHES *Patches,
     Patches->KPAppleRTC = !IsPropertyFalse(Prop);  //default = TRUE
   }
 
+  Prop = GetProperty(DictPointer, "EightApple");
+  if (Prop != NULL || gBootChanged) {
+    Patches->EightApple = IsPropertyTrue(Prop);
+  }
+
   //
   // Dell SMBIOS Patch
   //
@@ -1027,12 +1033,12 @@ FillinKextPatches (IN OUT KERNEL_AND_KEXT_PATCHES *Patches,
       }
 
       Patches->ForceKexts = newForceKexts;
-		DBG("ForceKextsToLoad: %lld requested\n", Count);
+      DBG("ForceKextsToLoad: %lld requested\n", Count);
 
       for (i = 0; i < Count; i++) {
         EFI_STATUS Status = GetElement(Prop, i, &Prop2);
         if (EFI_ERROR(Status)) {
-			DBG(" - [%02lld]: ForceKexts error %s getting next element\n", i, strerror(Status));
+          DBG(" - [%02lld]: ForceKexts error %s getting next element\n", i, strerror(Status));
           continue;
         }
 
@@ -6578,6 +6584,9 @@ GetOSIconName (
   XStringW OSIconName;
   if (OSVersion == NULL) {
     OSIconName = L"mac"_XSW;
+  } else if (AsciiStrStr (OSVersion, "10.16") != 0) {
+    // Big Sur
+    OSIconName = L"bigsur,mac"_XSW;
   } else if (AsciiStrStr (OSVersion, "10.15") != 0) {
     // Catalina
     OSIconName = L"cata,mac"_XSW;
@@ -6949,7 +6958,7 @@ GetDevices ()
           snprintf (SlotDevice->SlotName, 31, "AirPort");
           SlotDevice->SlotID          = 0;
           SlotDevice->SlotType        = SlotTypePciExpressX1;
-          DBG(" - WIFI: Vendor=%d = ", Pci.Hdr.VendorId);
+          DBG(" - WIFI: Vendor= ");
           switch (Pci.Hdr.VendorId) {
             case 0x11ab:
               DBG("Marvell\n");
@@ -6972,7 +6981,7 @@ GetDevices ()
               break;
 
             default:
-              DBG("Unknown\n");
+              DBG(" 0x%04X\n", Pci.Hdr.VendorId);
               break;
           }
         }
@@ -6994,7 +7003,7 @@ GetDevices ()
             DBG(" - [!] too many LAN card in the system (upto 4 limit exceeded), overriding the last one\n");
             nLanCards = 3; // last one will be rewritten
           }
-			DBG(" - LAN: %llu Vendor=", nLanCards-1);
+          DBG(" - LAN: %llu Vendor=", nLanCards-1);
           switch (Pci.Hdr.VendorId) {
             case 0x11ab:
               DBG("Marvell\n");
@@ -7062,6 +7071,7 @@ GetDevices ()
           }
           if (gSettings.ResetHDA) {
             //Slice method from VoodooHDA
+            //PCI_HDA_TCSEL_OFFSET = 0x44
             UINT8 Value = 0;
             Status = PciIo->Pci.Read (PciIo, EfiPciIoWidthUint8, 0x44, 1, &Value);
 
@@ -7810,14 +7820,28 @@ SetDevices (LOADER_ENTRY *Entry)
         }
 
         // HDA
-        else if (gSettings.HDAInjection &&
-                 (Pci.Hdr.ClassCode[2] == PCI_CLASS_MEDIA) &&
+        else if ((Pci.Hdr.ClassCode[2] == PCI_CLASS_MEDIA) &&
                  ((Pci.Hdr.ClassCode[1] == PCI_CLASS_MEDIA_HDA) ||
                   (Pci.Hdr.ClassCode[1] == PCI_CLASS_MEDIA_AUDIO))) {
                    // HDMI injection inside
-                   TmpDirty    = setup_hda_devprop (PciIo, &PCIdevice, Entry->OSVersion);
-                   StringDirty |= TmpDirty;
-                 }
+          if (gSettings.HDAInjection ) {
+            TmpDirty    = setup_hda_devprop (PciIo, &PCIdevice, Entry->OSVersion);
+            StringDirty |= TmpDirty;
+          }
+          if (gSettings.ResetHDA) {
+            
+            //PCI_HDA_TCSEL_OFFSET = 0x44
+            UINT8 Value = 0;
+            Status = PciIo->Pci.Read (PciIo, EfiPciIoWidthUint8, 0x44, 1, &Value);
+            
+            if (EFI_ERROR(Status)) {
+              continue;
+            }
+            
+            Value &= 0xf8;
+            PciIo->Pci.Write (PciIo, EfiPciIoWidthUint8, 0x44, 1, &Value);
+          }
+        }
 
         //LPC
         else if ((Pci.Hdr.ClassCode[2] == PCI_CLASS_BRIDGE) &&
@@ -7825,7 +7849,7 @@ SetDevices (LOADER_ENTRY *Entry)
         {
           if (gSettings.LpcTune) {
             Status = PciIo->Pci.Read (PciIo, EfiPciIoWidthUint16, GEN_PMCON_1, 1, &PmCon);
-			  MsgLog ("Initial PmCon value=%hX\n", PmCon);
+            MsgLog ("Initial PmCon value=%hX\n", PmCon);
 
             if (gSettings.EnableC6) {
               PmCon |= 1 << 11;
@@ -7862,7 +7886,7 @@ SetDevices (LOADER_ENTRY *Entry)
             PciIo->Pci.Write (PciIo, EfiPciIoWidthUint16, GEN_PMCON_1, 1, &PmCon);
 
             Status = PciIo->Pci.Read (PciIo, EfiPciIoWidthUint16,GEN_PMCON_1, 1, &PmCon);
-			  MsgLog ("Set PmCon value=%hX\n", PmCon);
+            MsgLog ("Set PmCon value=%hX\n", PmCon);
 
           }
           Rcba   = 0;
